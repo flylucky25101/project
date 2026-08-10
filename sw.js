@@ -1,5 +1,5 @@
 ﻿/* NEON SURVIVORS service worker - caches the app shell for offline play */
-const CACHE = 'neon-survivors-v20260722-premium-mobile';
+const CACHE = 'neon-survivors-v20260810-save-safe';
 const ASSETS = [
   './',
   './index.html',

@@ -157,6 +157,14 @@
   .toggle{cursor:pointer;pointer-events:auto;padding:6px 18px;border-radius:12px;font-weight:800;letter-spacing:1px;
     background:linear-gradient(90deg,var(--neon),#8af0ff);color:#06121a;box-shadow:0 0 14px rgba(0,240,255,.4);}
   input[type=range]{accent-color:var(--neon);height:22px;}
+  .save-tools{padding-top:16px;border-top:1px solid rgba(255,255,255,.10);}
+  .save-tools-head{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin-bottom:10px;}
+  .save-tools-head b{font-size:14px}.save-tools-head span{font-size:10px;color:#8fa8b6;text-align:right;line-height:1.4;}
+  .save-actions{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;}
+  .save-action{cursor:pointer;min-height:42px;padding:9px 8px;border-radius:10px;display:grid;place-items:center;
+    border:1px solid rgba(255,255,255,.13);background:rgba(255,255,255,.045);color:#dff6f8;
+    font-size:11px;font-weight:900;line-height:1.25;text-align:center;pointer-events:auto;}
+  .save-action:active{transform:scale(.97)}
   .shoprow{display:flex;gap:12px;align-items:center;text-align:left;
     background:linear-gradient(180deg,rgba(255,255,255,.055),rgba(0,0,0,.10));
     border:1px solid rgba(255,255,255,.11);border-radius:12px;padding:12px 14px;}
@@ -274,6 +282,7 @@
     .landing-actions #startBtn{grid-column:1 / -1;}
     .landing-actions #shopBtn{min-width:0;}
     .landing-foot{align-items:flex-start;flex-direction:column;gap:5px;}
+    .save-actions{grid-template-columns:1fr;}
     .char-grid{grid-template-columns:1fr 1fr;gap:8px;max-height:34vh;overflow:auto;padding-right:2px;}
     .char-card{min-height:105px;padding:10px;}
     .char-name{font-size:12px;}
@@ -371,6 +380,7 @@
       <div class="landing-actions">
         <div class="btn" id="startBtn">작전 시작 ▶</div>
         <div class="btn ghost" id="shopBtn">영구 강화 · 💰 <span id="goldBal">0</span></div>
+        <div class="btn ghost icon-only" id="achBtn" title="도전과제" aria-label="도전과제">🏅</div>
         <div class="btn ghost icon-only" id="settingsBtn" title="설정" aria-label="설정">⚙</div>
       </div>
       <div class="landing-foot">
@@ -378,7 +388,18 @@
         <span><b>진화</b> 무기 MAX + 관련 능력 + 상자</span>
       </div>
     </div>
-    <div class="app-version">현재 버전 <span id="versionText">v20260722-premium-mobile</span></div>
+    <div class="app-version">현재 버전 <span id="versionText">v20260810-save-safe</span></div>
+  </div>
+
+  <!-- Achievements / Records -->
+  <div class="overlay" id="achOverlay">
+    <div class="panel" style="width:min(520px,94vw)">
+      <div class="lvhead" style="font-size:clamp(24px,7vw,34px)">도전과제 · 기록실</div>
+      <div class="lvsub">달성 <span id="achCount">0 / 0</span></div>
+      <div id="achStats" style="margin-top:14px;text-align:left"></div>
+      <div id="achList" style="margin-top:14px;display:flex;flex-direction:column;gap:9px;max-height:44vh;overflow:auto"></div>
+      <div class="btn" id="achClose" style="margin-top:16px">닫기</div>
+    </div>
   </div>
 
   <!-- Settings -->
@@ -394,6 +415,18 @@
         <div style="display:flex;justify-content:space-between;align-items:center;gap:12px">
           <span>📳 화면 흔들림</span>
           <span class="toggle" id="shakeToggle">ON</span>
+        </div>
+        <div class="save-tools">
+          <div class="save-tools-head">
+            <b>💾 저장 데이터</b>
+            <span id="saveStatus">자동 백업 사용 중</span>
+          </div>
+          <div class="save-actions">
+            <div class="save-action" id="exportSaveBtn">내보내기</div>
+            <div class="save-action" id="importSaveBtn">불러오기</div>
+            <div class="save-action" id="restoreSaveBtn">최근 저장 복구</div>
+          </div>
+          <input type="file" id="saveFileInput" accept="application/json,.json" hidden>
         </div>
       </div>
       <div class="btn" id="settingsClose" style="margin-top:22px">닫기</div>
@@ -499,8 +532,20 @@ const rand=(a,b)=>a+Math.random()*(b-a);
 const clamp=(v,a,b)=>v<a?a:v>b?b:v;
 const dist2=(x1,y1,x2,y2)=>{const dx=x1-x2,dy=y1-y2;return dx*dx+dy*dy;};
 const TAU=Math.PI*2;
-const APP_VERSION='v20260722-premium-mobile';
+const APP_VERSION='v20260810-save-safe';
+const SAVE_SCHEMA=2;
+const SAVE_KEY='ns_meta', SAVE_BACKUP_KEY='ns_meta_backup';
 $('versionText').textContent=APP_VERSION;
+const testParams=new URLSearchParams(location.search);
+const SOAK_MODE=(location.hostname==='127.0.0.1'||location.hostname==='localhost')&&testParams.get('soak')==='1';
+const SOAK_SCALE=SOAK_MODE?clamp(+(testParams.get('scale')||16),1,64):1;
+const SOAK_STATS={enabled:SOAK_MODE,scale:SOAK_SCALE,frames:0,realSeconds:0,simulatedSeconds:0,
+  maxEnemies:0,maxProjectiles:0,maxParticles:0,maxGems:0,round:1,state:'start',errors:[]};
+if(SOAK_MODE){
+  window.__NS_SOAK__=SOAK_STATS;
+  window.addEventListener('error',e=>{SOAK_STATS.errors.push(String(e.message||e.error||'window error'));SOAK_STATS.errors=SOAK_STATS.errors.slice(-20);});
+  window.addEventListener('unhandledrejection',e=>{SOAK_STATS.errors.push(String(e.reason||'unhandled rejection'));SOAK_STATS.errors=SOAK_STATS.errors.slice(-20);});
+}
 
 // ============================================================ audio (WebAudio, no assets)
 const AudioFX=(()=>{
@@ -589,8 +634,10 @@ let time=0, killCount=0, spawnTimer=0, difficulty=0, bossActive=false;
 let round=1, phase='fight', roundTimer=0, warnT=0, pendingLevels=0, runGold=0;
 let combo=0, comboT=0, maxCombo=0, hitStop=0;
 let shakeOn=true, volume=0.18, tutorialT=0;
-const COMBO_WINDOW=2.6;   // seconds before the streak resets
-function comboMul(){ return 1 + Math.min(combo*0.03, 1.5); }   // up to ×2.5
+const COMBO_WINDOW=1.6;   // short window: the streak must be actively maintained
+function comboMul(){ return 1 + Math.min(combo*0.02, 1.0); }   // up to ×2.0
+const COMBO_RANKS=[[100,'SSS','#ff2bd6'],[60,'SS','#ff8a3b'],[35,'S','#ffd34d'],[20,'A','#8cff66'],[10,'B','#7af0ff'],[5,'C','#cdd9ff']];
+function comboRank(){ for(const r of COMBO_RANKS) if(combo>=r[0]) return r; return null; }
 const ROUND_LEN=38, WARN_LEN=2.6;
 const MAP=500;   // half-extent of the playfield (world spans -MAP..MAP → 1000×1000)
 const ROUND_THEMES=[
@@ -679,11 +726,34 @@ const CHARACTERS={
 };
 const DEFAULT_CHARS={ranger:true,blade:true,storm:true};
 let selectedChar='ranger';
-let META={gold:0, up:{}, chars:{...DEFAULT_CHARS}, stats:{}};
-function loadMeta(){ try{ META=JSON.parse(localStorage.getItem('ns_meta'))||{gold:0,up:{}}; }catch(e){ META={gold:0,up:{}}; }
-  if(!META.up) META.up={}; if(typeof META.gold!=='number') META.gold=0;
-  META.chars={...DEFAULT_CHARS,...(META.chars||{})};
-  META.stats={runs:0,lifetimeGold:Math.max(META.gold||0,0),bestClear:0,bestEvos:0,...(META.stats||{})};
+let META={schema:SAVE_SCHEMA,gold:0,up:{},chars:{...DEFAULT_CHARS},stats:{},ach:{}};
+let saveRecoveryNotice='자동 백업 사용 중';
+function parseSave(text){ try{ const value=JSON.parse(text); return value&&typeof value==='object'?value:null; }catch(e){ return null; } }
+function safeInt(value,min=0,max=999999999){ value=Number(value); return Number.isFinite(value)?clamp(Math.floor(value),min,max):min; }
+function normalizeMeta(raw){
+  const src=raw&&typeof raw==='object'?raw:{};
+  const up={};
+  for(const k in META_DEFS) up[k]=safeInt(src.up&&src.up[k],0,META_DEFS[k].max);
+  const chars={...DEFAULT_CHARS};
+  for(const k in CHARACTERS) if(src.chars&&src.chars[k]) chars[k]=true;
+  const statsSrc=src.stats&&typeof src.stats==='object'?src.stats:{};
+  const stats={
+    runs:safeInt(statsSrc.runs),lifetimeGold:safeInt(statsSrc.lifetimeGold),bestClear:safeInt(statsSrc.bestClear,0,9999),
+    bestEvos:safeInt(statsSrc.bestEvos,0,99),kills:safeInt(statsSrc.kills),bestCombo:safeInt(statsSrc.bestCombo)
+  };
+  const ach={};
+  if(src.ach&&typeof src.ach==='object') for(const k of Object.keys(src.ach).slice(0,100)) if(src.ach[k]) ach[k]=1;
+  const gold=safeInt(src.gold);
+  stats.lifetimeGold=Math.max(stats.lifetimeGold,gold);
+  return {schema:SAVE_SCHEMA,gold,up,chars,stats,ach};
+}
+function setSaveStatus(message){ saveRecoveryNotice=message||'자동 백업 사용 중'; const el=$('saveStatus'); if(el) el.textContent=saveRecoveryNotice; }
+function loadMeta(){
+  const primaryText=localStorage.getItem(SAVE_KEY), backupText=localStorage.getItem(SAVE_BACKUP_KEY);
+  let raw=parseSave(primaryText);
+  if(!raw&&backupText){ raw=parseSave(backupText); setSaveStatus('백업에서 자동 복구됨'); }
+  else setSaveStatus('자동 백업 사용 중 · 형식 '+SAVE_SCHEMA);
+  META=normalizeMeta(raw);
   META.stats.lifetimeGold=Math.max(META.stats.lifetimeGold||0,META.gold||0);
   const oldBest=+(localStorage.getItem('ns_best_round')||0);
   if(oldBest>1) META.stats.bestClear=Math.max(META.stats.bestClear,oldBest-1);
@@ -691,7 +761,12 @@ function loadMeta(){ try{ META=JSON.parse(localStorage.getItem('ns_meta'))||{gol
   selectedChar=(saved&&META.chars[saved])?saved:'ranger';
   refreshUnlocks(true);
 }
-function saveMeta(){ try{ localStorage.setItem('ns_meta', JSON.stringify(META)); }catch(e){} }
+function saveMeta(){ try{
+  META=normalizeMeta(META);
+  const next=JSON.stringify(META), previous=localStorage.getItem(SAVE_KEY);
+  if(previous&&previous!==next&&parseSave(previous)) localStorage.setItem(SAVE_BACKUP_KEY,previous);
+  localStorage.setItem(SAVE_KEY,next); localStorage.setItem('ns_save_schema',String(SAVE_SCHEMA));
+}catch(e){ setSaveStatus('저장 공간 오류 · 백업 내보내기 권장'); } }
 function goldMul(){ return 1 + 0.12*(META.up.gold||0); }
 
 function newPlayer(){
@@ -855,6 +930,7 @@ function update(dt){
   let mx=0,my=0;
   if(keys['w']||keys['arrowup'])my-=1; if(keys['s']||keys['arrowdown'])my+=1;
   if(keys['a']||keys['arrowleft'])mx-=1; if(keys['d']||keys['arrowright'])mx+=1;
+  if(SOAK_MODE){ mx+=Math.cos(time*.43); my+=Math.sin(time*.37); }
   mx+=joy.x; my+=joy.y;
   const ml=Math.hypot(mx,my);
   player.moving=ml>0.04;
@@ -907,12 +983,18 @@ function update(dt){
     if(e.type==='charger'){ e.chargeT-=dt;
       if(e.dashing>0){ e.dashing-=dt; spd=e.spd*4.5; }          // lunge
       else if(e.chargeT<=0){ e.dashing=0.5; e.chargeT=rand(2,3.6); } }
+    if(e.chill>0) spd*=0.55;   // chilled enemies crawl
     e.x+=dx*spd*dt + e.kb.x*dt;
     e.y+=dy*spd*dt + e.kb.y*dt;
     e.x=clamp(e.x,-MAP+e.r,MAP-e.r);
     e.y=clamp(e.y,-MAP+e.r,MAP-e.r);
     e.kb.x*=0.86; e.kb.y*=0.86;
     e.hit=Math.max(0,e.hit-dt);
+    // ---- status effects: burn (damage over time) / chill (slow) ----
+    if(e.burn>0){ e.burn-=dt; e.hp-=(e.burnDps||6)*dt;
+      if(Math.random()<dt*8) particles.push({x:e.x+rand(-6,6),y:e.y+rand(-8,4),vx:rand(-12,12),vy:-rand(20,50),r:rand(1.2,2.4),life:.35,max:.35,color:'#ff8a3b'});
+      if(e.hp<=0){ killEnemy(e,i); continue; } }
+    if(e.chill>0){ e.chill-=dt; }
     // ---- boss ground slam (telegraphed AoE) ----
     if(e.boss){
       if(e.slamTele>0){ e.slamTele-=dt;
@@ -986,14 +1068,21 @@ function update(dt){
     g.x+=g.vx*dt; g.y+=g.vy*dt; g.vx*=0.86; g.vy*=0.86;
     if(g.lock>0){ g.lock-=dt; continue; }        // let it visibly drop before drifting in
     const d2=dist2(g.x,g.y,player.x,player.y); const d=Math.sqrt(d2)||1;
-    if(d2<magR*magR){
-      const speed=clamp(150+player.magnet*3+(magR-d)*2.2, 170, player.magnet>0?760:330);
+    // after a few seconds any stray gem homes in on its own, so none pile up on the map
+    const stray = g.age>4;
+    if(d2<magR*magR || stray){
+      const base=stray?Math.max(240, 150+g.age*45):150+player.magnet*3+(magR-d)*2.2;
+      const speed=clamp(base, 170, player.magnet>0?760:(stray?620:330));
       const step=Math.min(speed*dt, d);
       g.x+=(player.x-g.x)/d*step; g.y+=(player.y-g.y)/d*step;
     }
     if(d2<(player.r+26)**2){ gainXP(g.v); gems.splice(i,1); AudioFX.xp();
       addText(player.x, player.y-26, '◆ +'+g.v+' XP', '#5fe0ff', 15); pulseXP(); }
   }
+  // hard safety cap: if the field somehow floods, absorb the oldest gems (XP is still granted)
+  if(gems.length>140){ const over=gems.length-140;
+    for(let k=0;k<over;k++){ const g=gems.shift(); if(g) gainXP(g.v); }
+    pulseXP(); }
 
   // ---- evolution chests ----
   for(let i=chests.length-1;i>=0;i--){
@@ -1031,7 +1120,8 @@ function weaponNova(dt){
     particles.push({ring:true,vx:0,vy:0,x:player.x,y:player.y,r:10,max:s.radius,life:.4,maxl:.4,color:'#b14bff'});
     enemies.forEach(e=>{ if(dist2(e.x,e.y,player.x,player.y)<s.radius*s.radius){
       const a=Math.atan2(e.y-player.y,e.x-player.x);
-      hitEnemy(e,s.dmg*player.dmgMul,Math.cos(a),Math.sin(a)); }});
+      hitEnemy(e,s.dmg*player.dmgMul,Math.cos(a),Math.sin(a));
+      applyChill(e, 1.6); }});   // 노바: 충격파가 적을 둔화시킴
     AudioFX.hit(); shake=Math.max(shake,5);
   }
 }
@@ -1070,7 +1160,7 @@ function weaponChain(dt){
   player.chainT=cooldown(s.rate);
   let cur=first, px=player.x, py=player.y; const hitSet=new Set();
   for(let j=0;j<=s.jumps && cur;j++){
-    hitEnemy(cur, s.dmg*player.dmgMul, 0,0); hitSet.add(cur);
+    hitEnemy(cur, s.dmg*player.dmgMul, 0,0); applyChill(cur, 1.2); hitSet.add(cur);   // 체인: 감전으로 둔화
     texts.push({beam:true,x1:px,y1:py,x2:cur.x,y2:cur.y,life:.15,maxl:.15,width:5,color:'#c8f0ff'});
     px=cur.x; py=cur.y;
     let next=null, nd=s.range*s.range;
@@ -1109,6 +1199,7 @@ function explodeProjectile(p,i){
   for(const e of enemies){
     if(dist2(e.x,e.y,p.x,p.y)<((p.boomR||80)+e.r)**2){
       hitEnemy(e,p.boomDmg||p.dmg, e.x-p.x, e.y-p.y);
+      applyBurn(e, 3, 6+(player.weapons.grenade||1)*3);   // 유탄: 폭발이 적을 불태움
     }
   }
   shake=Math.max(shake,4);
@@ -1210,10 +1301,15 @@ function recordRoundClear(rnd){
   META.stats.bestClear=Math.max(META.stats.bestClear||0,rnd);
   saveMeta(); refreshUnlocks(false);
 }
+function applyBurn(e,dur,dps){ e.burn=Math.max(e.burn||0,dur); e.burnDps=Math.max(e.burnDps||0,dps); }
+function applyChill(e,dur){ e.chill=Math.max(e.chill||0,dur); }
 function damagePlayer(d){
+  if(SOAK_MODE){ player.invuln=.2; return; }
   const finalDmg=Math.max(1,d*Math.max(0.46,1-(player.dr||0)));
   player.hp-=finalDmg; player.invuln=0.6; AudioFX.hurt(); vibrate(45);
   shake=Math.max(shake,7);
+  if(combo>=5){ addText(player.x,player.y-46,'COMBO BREAK','#ff6b8f',15); }
+  combo=Math.floor(combo*0.4); comboT=combo>0?COMBO_WINDOW:0;   // getting hit costs your streak
   const f=$('dmgFlash'); f.classList.remove('flash'); void f.offsetWidth; f.classList.add('flash');
   if(player.hp<=0){ player.hp=0; gameOver(); }
 }
@@ -1245,6 +1341,10 @@ function openLevelUp(){
   picks=picks.concat(pool.slice(0, 3-picks.length));
   if(picks.length===0){ // all maxed -> heal
     picks=[{kind:'heal'}];
+  }
+  if(SOAK_MODE){
+    const choice=picks.find(p=>p.kind!=='heal')||picks[0];
+    setTimeout(()=>applyPick(choice),0); return;
   }
   const cards=$('cards'); cards.innerHTML='';
   picks.forEach(p=>{
@@ -1424,7 +1524,11 @@ function drawCombo(){
   if(combo<3) return;
   const cx=W/2, y=Math.max(96,86);
   const t=performance.now()/1000, pop=1+0.06*Math.sin(t*10);
+  const rk=comboRank();
   ctx.save(); ctx.textAlign='center';
+  // rank letter
+  if(rk){ ctx.font='900 '+(20*pop)+'px system-ui'; ctx.fillStyle=rk[2];
+    ctx.shadowColor=rk[2]; ctx.shadowBlur=16; ctx.fillText(rk[1], cx, y-8); }
   // multiplier
   ctx.font='900 '+(26*pop)+'px system-ui';
   ctx.fillStyle='#ffd34d'; ctx.shadowColor='#ff8a3b'; ctx.shadowBlur=14;
@@ -1719,7 +1823,9 @@ function drawPlayer(){
 }
 
 function drawEnemy(e){
-  const dir=player.x>=e.x?1:-1, t=performance.now()/1000, col=e.hit>0?'#ffffff':e.color;
+  const dir=player.x>=e.x?1:-1, t=performance.now()/1000;
+  let col=e.hit>0?'#ffffff':e.color;
+  if(e.hit<=0){ if(e.burn>0) col='#ff8a3b'; else if(e.chill>0) col='#8fd8ff'; }   // status tint
   ctx.save(); ctx.translate(e.x,e.y);
   // ground shadow
   ctx.save(); ctx.scale(1,0.38); ctx.fillStyle='rgba(0,0,0,.3)';
@@ -1930,6 +2036,10 @@ function updateHUD(){
 function startGame(){
   if(!META.chars[selectedChar]){ selectedChar='ranger'; renderCharacters(); }
   reset(); clearInput(); state='play';
+  if(SOAK_MODE){
+    player.maxhp=999999; player.hp=player.maxhp; player.dmgMul*=7; player.bossDmg*=10;
+    player.coolMul*=.42; player.magnet+=900; player.xpMul*=2; player.dr=.54;
+  }
   $('startOverlay').style.display='none';
   $('charOverlay').style.display='none';
   $('overOverlay').style.display='none';
@@ -1957,6 +2067,9 @@ function gameOver(){
   META.stats.runs=(META.stats.runs||0)+1;
   META.stats.lifetimeGold=(META.stats.lifetimeGold||0)+earned;
   META.stats.bestEvos=Math.max(META.stats.bestEvos||0,player.runEvos||0);
+  META.stats.kills=(META.stats.kills||0)+killCount;
+  META.stats.bestCombo=Math.max(META.stats.bestCombo||0,maxCombo);
+  checkAchievements(false);
   saveMeta(); refreshUnlocks(false);
   $('sRound').textContent='ROUND '+round;
   $('sKills').textContent=killCount;
@@ -1986,6 +2099,48 @@ $('soundBtn').onclick=()=>{ const m=AudioFX.toggle(); $('soundBtn').textContent=
 $('musicBtn').onclick=()=>{ musicOn=!musicOn; $('musicBtn').style.opacity=musicOn?'1':'0.4';
   if(musicOn){ AudioFX.ensure(); if(phase==='boss'||phase==='warn') AudioFX.startBossMusic(); else AudioFX.startMusic(); } else AudioFX.stopMusic(); };
 
+// ---- achievements ----
+const ACHIEVEMENTS=[
+  {id:'first',   icon:'🎯', name:'첫 걸음',      desc:'첫 판을 완료',            test:s=>(s.runs||0)>=1},
+  {id:'kill500', icon:'☠️', name:'학살자',       desc:'누적 처치 500',           test:s=>(s.kills||0)>=500},
+  {id:'kill5k',  icon:'💀', name:'전장의 지배자', desc:'누적 처치 5,000',         test:s=>(s.kills||0)>=5000},
+  {id:'round3',  icon:'👑', name:'보스 사냥꾼',   desc:'라운드 3 클리어',         test:s=>(s.bestClear||0)>=3},
+  {id:'round6',  icon:'🔥', name:'심연의 도전자', desc:'라운드 6 클리어',         test:s=>(s.bestClear||0)>=6},
+  {id:'combo50', icon:'⚡', name:'연쇄 학살',     desc:'50 콤보 달성',            test:s=>(s.bestCombo||0)>=50},
+  {id:'combo150',icon:'🌟', name:'무아지경',      desc:'150 콤보 달성',           test:s=>(s.bestCombo||0)>=150},
+  {id:'evo2',    icon:'⚔️', name:'무기 장인',     desc:'한 판에 진화 2개',        test:s=>(s.bestEvos||0)>=2},
+  {id:'gold1k',  icon:'💰', name:'수집가',        desc:'누적 골드 1,000',         test:s=>(s.lifetimeGold||0)>=1000},
+  {id:'runs20',  icon:'🏅', name:'끈기',          desc:'20판 플레이',             test:s=>(s.runs||0)>=20},
+];
+function checkAchievements(silent){
+  const st=META.stats||{}; META.ach=META.ach||{};
+  let newly=[];
+  for(const a of ACHIEVEMENTS){ if(!META.ach[a.id] && a.test(st)){ META.ach[a.id]=1; newly.push(a); } }
+  if(newly.length){ saveMeta();
+    if(!silent) setTimeout(()=>showBanner('업적 달성! '+newly[0].icon,newly[0].name,'reward'),700); }
+  return newly;
+}
+function renderAchievements(){
+  const list=$('achList'); if(!list) return; list.innerHTML='';
+  const st=META.stats||{}; META.ach=META.ach||{};
+  const done=ACHIEVEMENTS.filter(a=>META.ach[a.id]).length;
+  const hdr=$('achCount'); if(hdr) hdr.textContent=done+' / '+ACHIEVEMENTS.length;
+  const rec=$('achStats');
+  if(rec) rec.innerHTML=
+     '<div class="stat"><span>🎮 플레이 판수</span><span>'+(st.runs||0)+'</span></div>'
+    +'<div class="stat"><span>☠ 누적 처치</span><span>'+(st.kills||0)+'</span></div>'
+    +'<div class="stat"><span>🏆 최고 클리어</span><span>ROUND '+(st.bestClear||0)+'</span></div>'
+    +'<div class="stat"><span>🔥 최고 콤보</span><span>x'+(st.bestCombo||0)+'</span></div>'
+    +'<div class="stat"><span>⚔ 한 판 최다 진화</span><span>'+(st.bestEvos||0)+'</span></div>'
+    +'<div class="stat"><span>💰 누적 골드</span><span>'+(st.lifetimeGold||0)+'</span></div>';
+  for(const a of ACHIEVEMENTS){ const got=!!META.ach[a.id];
+    const row=document.createElement('div'); row.className='shoprow';
+    row.style.opacity=got?'1':'0.45';
+    row.innerHTML='<div class="ico">'+(got?a.icon:'🔒')+'</div>'
+      +'<div class="ctext"><h3>'+a.name+' <span class="tag '+(got?'up':'new')+'">'+(got?'달성':'미달성')+'</span></h3>'
+      +'<p>'+a.desc+'</p></div>';
+    list.appendChild(row); }
+}
 // meta + shop
 function unlockCharacter(id,silent=false){
   if(META.chars[id]) return false;
@@ -2073,13 +2228,15 @@ function renderShop(){
 }
 function resetProgress(){
   if(!confirm('영구 강화, 골드, 캐릭터 해금, 최고 기록을 초기화할까요? 성장 과정을 다시 테스트할 수 있습니다.')) return;
-  META={gold:0,up:{},chars:{...DEFAULT_CHARS},stats:{runs:0,lifetimeGold:0,bestClear:0,bestEvos:0}};
+  META={schema:SAVE_SCHEMA,gold:0,up:{},chars:{...DEFAULT_CHARS},
+    stats:{runs:0,lifetimeGold:0,bestClear:0,bestEvos:0,kills:0,bestCombo:0},ach:{}};
   selectedChar='ranger';
   try{
     localStorage.removeItem('ns_best_round');
     localStorage.setItem('ns_char',selectedChar);
   }catch(e){}
   saveMeta(); renderGold(); renderShop(); renderCharacters();
+  setSaveStatus('초기화 전 진행은 최근 백업으로 복구 가능');
   const best=$('sBest'); if(best) best.textContent='ROUND 1';
   showBanner('성장 초기화 완료','테스트용 초기 상태로 복원','reward');
 }
@@ -2099,12 +2256,80 @@ $('resetProgressBtn').onclick=resetProgress;
 renderGold();
 
 // ---- settings (volume / screen shake) ----
+function makeSavePackage(){
+  return {format:'NEON_SURVIVORS_SAVE',schema:SAVE_SCHEMA,appVersion:APP_VERSION,
+    exportedAt:new Date().toISOString(),data:{meta:normalizeMeta(META),
+      bestRound:safeInt(localStorage.getItem('ns_best_round'),0,9999),character:selectedChar,
+      volume:clamp(Number(volume)||0,0,.4),shake:!!shakeOn,tutorial:!!localStorage.getItem('ns_tut')}};
+}
+function saveFileName(){ return 'neon-survivors-save-'+new Date().toISOString().slice(0,10)+'.json'; }
+function downloadSaveBlob(blob,name){
+  const url=URL.createObjectURL(blob), a=document.createElement('a'); a.href=url; a.download=name;
+  document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(url),1200);
+}
+async function exportSave(){
+  const text=JSON.stringify(makeSavePackage(),null,2), blob=new Blob([text],{type:'application/json'}), name=saveFileName();
+  try{
+    const file=new File([blob],name,{type:'application/json'});
+    if(navigator.share&&navigator.canShare&&navigator.canShare({files:[file]})){
+      try{ await navigator.share({title:'NEON SURVIVORS 저장 백업',files:[file]}); }
+      catch(shareError){ if(shareError&&shareError.name==='AbortError') return; downloadSaveBlob(blob,name); }
+    }else downloadSaveBlob(blob,name);
+    setSaveStatus('백업 내보내기 완료 · '+new Date().toLocaleDateString());
+  }catch(e){ if(e&&e.name!=='AbortError') setSaveStatus('내보내기 실패 · 다시 시도하세요'); }
+}
+function unpackSavePackage(pkg){
+  if(!pkg||typeof pkg!=='object') throw new Error('올바른 저장 파일이 아닙니다');
+  if(pkg.format==='NEON_SURVIVORS_SAVE'){
+    if(safeInt(pkg.schema,0,999)>SAVE_SCHEMA) throw new Error('더 새로운 게임 버전의 저장 파일입니다');
+    if(!pkg.data||typeof pkg.data!=='object') throw new Error('저장 데이터가 비어 있습니다');
+    return {meta:normalizeMeta(pkg.data.meta),bestRound:safeInt(pkg.data.bestRound,0,9999),
+      character:CHARACTERS[pkg.data.character]?pkg.data.character:'ranger',
+      volume:clamp(Number(pkg.data.volume)||.18,0,.4),shake:pkg.data.shake!==false,tutorial:!!pkg.data.tutorial};
+  }
+  return {meta:normalizeMeta(pkg),bestRound:0,character:'ranger',volume:.18,shake:true,tutorial:false};
+}
+function applyImportedSave(data){
+  const previous=localStorage.getItem(SAVE_KEY); if(previous&&parseSave(previous)) localStorage.setItem(SAVE_BACKUP_KEY,previous);
+  localStorage.setItem(SAVE_KEY,JSON.stringify(data.meta));
+  localStorage.setItem('ns_best_round',String(data.bestRound));
+  localStorage.setItem('ns_char',data.character);
+  localStorage.setItem('ns_vol',String(data.volume));
+  localStorage.setItem('ns_shake',data.shake?'1':'0');
+  if(data.tutorial) localStorage.setItem('ns_tut','1'); else localStorage.removeItem('ns_tut');
+  volume=data.volume; shakeOn=data.shake; loadMeta(); renderGold(); renderShop(); renderCharacters();
+  const vr=$('volRange'); if(vr) vr.value=Math.round(volume*100);
+  const st=$('shakeToggle'); if(st){st.textContent=shakeOn?'ON':'OFF';st.style.opacity=shakeOn?'1':'0.5';}
+}
+async function importSaveFile(file){
+  try{
+    if(!file||file.size>1024*1024) throw new Error('저장 파일 크기가 올바르지 않습니다');
+    const data=unpackSavePackage(JSON.parse(await file.text()));
+    if(!confirm('현재 진행을 백업한 뒤 이 저장 파일을 불러올까요?')) return;
+    applyImportedSave(data); saveMeta(); setSaveStatus('백업 불러오기 완료');
+  }catch(e){ setSaveStatus(e&&e.message?e.message:'불러오기에 실패했습니다'); }
+}
+function restoreRecentSave(){
+  const backup=localStorage.getItem(SAVE_BACKUP_KEY), parsed=parseSave(backup);
+  if(!parsed){ setSaveStatus('복구 가능한 최근 저장이 없습니다'); return; }
+  if(!confirm('현재 저장과 최근 자동 백업을 서로 교체할까요?')) return;
+  const current=localStorage.getItem(SAVE_KEY);
+  localStorage.setItem(SAVE_KEY,JSON.stringify(normalizeMeta(parsed)));
+  if(current&&parseSave(current)) localStorage.setItem(SAVE_BACKUP_KEY,current);
+  loadMeta(); renderGold(); renderShop(); renderCharacters(); setSaveStatus('최근 저장 복구 완료 · 다시 누르면 되돌리기');
+}
 let settingsReturn='start';
 function openSettings(from){ settingsReturn=from||'start';
   $('startOverlay').style.display='none'; $('pauseOverlay').style.display='none';
   $('settingsOverlay').style.display='grid'; }
+$('achBtn').onclick=()=>{ renderAchievements(); $('startOverlay').style.display='none'; $('achOverlay').style.display='grid'; };
+$('achClose').onclick=()=>{ $('achOverlay').style.display='none'; $('startOverlay').style.display='grid'; };
 $('settingsBtn').onclick=()=>openSettings('start');
 $('settingsBtn2').onclick=()=>openSettings('pause');
+$('exportSaveBtn').onclick=exportSave;
+$('importSaveBtn').onclick=()=>{ const input=$('saveFileInput'); input.value=''; input.click(); };
+$('saveFileInput').onchange=e=>importSaveFile(e.target.files&&e.target.files[0]);
+$('restoreSaveBtn').onclick=restoreRecentSave;
 $('settingsClose').onclick=()=>{ $('settingsOverlay').style.display='none';
   if(settingsReturn==='pause') $('pauseOverlay').style.display='grid';
   else $('startOverlay').style.display='grid'; };
@@ -2118,6 +2343,7 @@ $('shakeToggle').onclick=()=>{ shakeOn=!shakeOn;
   const sh=localStorage.getItem('ns_shake'); if(sh!=null) shakeOn=(sh==='1');
   const vr=$('volRange'); if(vr) vr.value=Math.round(volume*100);
   const st=$('shakeToggle'); if(st){ st.textContent=shakeOn?'ON':'OFF'; st.style.opacity=shakeOn?'1':'0.5'; }
+  setSaveStatus(saveRecoveryNotice);
 })();
 
 // ============================================================ main loop
@@ -2126,17 +2352,30 @@ function loop(now){
   let dt=(now-last)/1000; last=now;
   if(dt>0.05) dt=0.05; // clamp
   if(hitStop>0){ hitStop-=dt; dt*=0.15; }   // brief hit-stop for impact
-  if(state==='play'){ update(dt); }
+  if(state==='play'){
+    let remaining=dt*SOAK_SCALE;
+    while(remaining>0&&state==='play'){ const step=Math.min(.05,remaining); update(step); remaining-=step; }
+  }
   if(state==='start'||state==='play'||state==='pause'||state==='levelup'||state==='over'){
     if(player) draw();
+  }
+  if(SOAK_MODE){
+    SOAK_STATS.frames++; SOAK_STATS.realSeconds+=(dt||0); SOAK_STATS.simulatedSeconds=time;
+    SOAK_STATS.maxEnemies=Math.max(SOAK_STATS.maxEnemies,enemies.length);
+    SOAK_STATS.maxProjectiles=Math.max(SOAK_STATS.maxProjectiles,projectiles.length);
+    SOAK_STATS.maxParticles=Math.max(SOAK_STATS.maxParticles,particles.length);
+    SOAK_STATS.maxGems=Math.max(SOAK_STATS.maxGems,gems.length);
+    SOAK_STATS.round=round; SOAK_STATS.state=state; SOAK_STATS.phase=phase;
+    if(SOAK_STATS.frames%30===0) document.documentElement.dataset.soakMetrics=JSON.stringify(SOAK_STATS);
   }
 }
 // need a player to draw idle background on start screen
 player=newPlayer(); enemies=[];projectiles=[];gems=[];chests=[];particles=[];texts=[];orbs=[];
 applyThemeUI();
+if(SOAK_MODE){ musicOn=false; setTimeout(startGame,60); }
 requestAnimationFrame(loop);
 })();
-/* build:v20260722-premium-mobile */
+/* build:v20260810-save-safe */
 </script>
 <script>
 // Offline install (PWA): only over http/https, never on file://
